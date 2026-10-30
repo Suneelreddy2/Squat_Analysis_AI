@@ -1,0 +1,95 @@
+version: "1.0"
+skill_name: "Barbell Low-Bar Squat Analysis Skill"
+source_document: "Document_for_skill.pdf (Starting Strength Squat Standards)"
+
+rules:
+  - id: "SQUAT_DEPTH"
+    name: "Squat Depth (Hip Crease below Top of Patella)"
+    category: "Movement Mechanics"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 2, 15-17, 35"
+      pdf_pages: "Pages 5, 18-20, 38"
+      figure: "Figure 2-1 & Figure 2-10"
+      section: "Squat Depth – Safety and Importance"
+    description: "The full squat requires the hip joint (identified by the crease in the shorts B) to drop below the top of the patella (knee cap A), dropping the thigh below parallel with the ground."
+    pass_message: "Full depth achieved. Hip crease dropped below the top of the patella at the bottom of the movement."
+    fail_message: "Partial squat detected. Hip crease remained above the top of the patella at maximum depth. Partial squats increase anterior knee shear and fail to recruit the posterior chain (hamstrings/glutes)."
+
+  - id: "BAR_PATH_MIDFOOT"
+    name: "Bar Path over Midfoot Balance Point"
+    category: "Balance & Efficiency"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 8-11, 22, 35"
+      pdf_pages: "Pages 11-14, 25, 38"
+      figure: "Figure 2-4 & Figure 2-5"
+      section: "Loaded Human Movement & Balance Point"
+    description: "The barbell center of mass must remain vertically aligned directly over the midfoot (center of sole of shoe) throughout descent and ascent."
+    pass_message: "Barbell trajectory remained vertically balanced over the midfoot throughout the repetition."
+    fail_message: "Bar path drifted forward of the midfoot balance point, creating unnecessary leverage against the lower back and knees."
+
+  - id: "BACK_ANGLE"
+    name: "Back Angle & Torso Rigidity"
+    category: "Posture & Spine Integrity"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 9, 13, 22, 35"
+      pdf_pages: "Pages 12, 16, 25, 38"
+      figure: "Figure 2-5 & Figure 2-22"
+      section: "Diagnostic Angles & Back Angle"
+    description: "The torso must maintain a rigid, inclined back angle (~45 degrees at bottom for low-bar squat) without excessive forward collapse or premature upright posture."
+    pass_message: "Torso maintained a stable back angle (~40-50°) with rigid spinal extension through the bottom turnaround."
+    fail_message: "Torso collapsed forward or hips rose faster than shoulders during ascent ('good morning' fault), compromising spinal transmission."
+
+  - id: "KNEE_TRACKING"
+    name: "Knee Position & Forward Travel"
+    category: "Joint Mechanics"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 14, 22, 35"
+      pdf_pages: "Pages 17, 25, 38"
+      figure: "Figure 2-13 & Figure 2-22"
+      section: "Learning to Squat & Knee Position"
+    description: "Knees should travel forward early in descent and remain stable over toes without excessive late forward sliding at the bottom."
+    pass_message: "Knee position was stable with controlled forward travel over the toes."
+    fail_message: "Knees slid excessively forward of the toes at the bottom position, shifting force onto the quads instead of driving with the hips."
+
+  - id: "EYE_GAZE"
+    name: "Eye Gaze & Cervical Spine Alignment"
+    category: "Head & Neck Position"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 23-26, 35"
+      pdf_pages: "Pages 26-29, 38"
+      figure: "Figure 2-15 & Figure 2-16"
+      section: "Eye Gaze Direction"
+    description: "Eye gaze should be fixed on the floor 4 to 5 feet in front of the lifter with chin down, facilitating hip drive and protecting the cervical spine."
+    pass_message: "Eye gaze remained directed downward in front of the lifter, keeping the cervical spine neutral."
+    fail_message: "Head was tilted upward or gaze directed toward the ceiling, which slackens the posterior chain and risks neck strain."
+
+  - id: "HIP_DRIVE"
+    name: "Hip Drive Initiation out of Bottom"
+    category: "Power Generation"
+    assessable_from_side_view: true
+    citation:
+      ref_pages: "Pages 1, 22, 23"
+      pdf_pages: "Pages 4, 25, 26"
+      figure: "Figure 2-14"
+      section: "Generating Hip Drive"
+    description: "Ascent must be initiated by driving the hips straight up out of the bottom position ('butt straight up in the air') using the stretch reflex."
+    pass_message: "Hips drove straight up out of the bottom position to initiate the ascent."
+    fail_message: "Hips stalled or shifted forward upon starting ascent rather than driving straight up."
+
+  - id: "STANCE_AND_GRIP"
+    name: "Stance Width (Shoulder-width) & Hand/Bar Grip"
+    category: "Setup & Geometry"
+    assessable_from_side_view: false
+    citation:
+      ref_pages: "Pages 14, 22, 29-30"
+      pdf_pages: "Pages 17, 25, 32-33"
+      figure: "Figure 2-12 & Figure 2-18"
+      section: "Foot Placement & Grip Width"
+    description: "Heels shoulder-width apart with toes out at 30 degrees; thumbs on top of bar; bar resting under scapula spine."
+    pass_message: "Cannot assess stance width or hand grip from side-view camera angle."
+    fail_message: "Cannot assess stance width or hand grip from side-view camera angle."
