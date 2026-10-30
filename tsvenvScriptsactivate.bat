@@ -3,3 +3,5 @@
 
       Commands marked with * may be preceded by a number, _N.
       Notes in parentheses indicate the behavior if _N is given.
+      A key preceded by a caret indicates the Ctrl key; thus ^K is ctrl-K.
+
