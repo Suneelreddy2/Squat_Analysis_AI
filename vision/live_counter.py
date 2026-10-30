@@ -17,6 +17,7 @@ from collections import deque
 
 from vision.biomechanics import BiomechanicsCalculator
 from vision.video_annotator import VideoAnnotator
+from vision.video_transcoder import transcode_to_h264
 
 # Landmark indices — mediapipe 0.10.x keeps solutions under mp.solutions
 try:
@@ -146,31 +147,8 @@ class LiveRepCounter:
             os.path.dirname(source_path),
             f"browser_{os.path.basename(source_path)}",
         )
-        ffmpeg_commands = []
-        try:
-            import imageio_ffmpeg
-            ffmpeg_commands.append(imageio_ffmpeg.get_ffmpeg_exe())
-        except Exception:
-            pass
-        ffmpeg_commands.extend(["ffmpeg", "ffmpeg.exe"])
-
-        for ffmpeg_cmd in ffmpeg_commands:
-            try:
-                result = subprocess.run(
-                    [
-                        ffmpeg_cmd, "-y", "-i", source_path,
-                        "-an", "-c:v", "libx264", "-preset", "veryfast",
-                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                        output_path,
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=300,
-                )
-                if result.returncode == 0 and os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
-                    return output_path
-            except Exception:
-                continue
+        if transcode_to_h264(source_path, output_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
+            return output_path
         return source_path
 
     def _open_record_writer(self, width: int, height: int, fps: float):

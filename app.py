@@ -3,10 +3,12 @@ import sys
 import tempfile
 import hashlib
 import subprocess
+import base64
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
+
 try:
     import av
     from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
@@ -56,11 +58,11 @@ else:
 
 def _render_live_camera():
     """Live interactive webcam studio panel."""
-    st.markdown(f"""
+    st.markdown("""
     <div class="card" style="padding:16px 20px;margin-bottom:14px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
         <div>
-          <h3 style="margin:0;color:#fff;font-size:1.25rem;">Live squat session</h3>
+          <h3 style="margin:0;color:#fff;font-size:1.25rem;">Live Squat Session</h3>
           <p style="margin:3px 0 0;color:#cbd5e1;font-size:.88rem;">Side profile · full body in frame · camera at hip height</p>
         </div>
         <span class="citation-pill">Live camera analysis</span>
@@ -69,7 +71,7 @@ def _render_live_camera():
     """, unsafe_allow_html=True)
 
     if not HAS_WEBRTC:
-        st.warning("streamlit-webrtc and av are required for live camera recording. Install them with pip install streamlit-webrtc av." )
+        st.warning("streamlit-webrtc and av are required for live camera recording. Install them with: pip install streamlit-webrtc av")
         return None
 
     c_stream, c_setup = st.columns([2, 1], gap="large")
@@ -93,8 +95,6 @@ def _render_live_camera():
         )
 
         if cloudflare_key_id and cloudflare_api_token:
-            # streamlit-webrtc reads these server-side and obtains short-lived
-            # Cloudflare TURN credentials when rtc_configuration is omitted.
             os.environ["CLOUDFLARE_TURN_KEY_ID"] = cloudflare_key_id
             os.environ["CLOUDFLARE_TURN_KEY_API_TOKEN"] = cloudflare_api_token
             rtc_config = None
@@ -118,18 +118,15 @@ def _render_live_camera():
 
     with c_setup:
         with st.container(border=True):
-            st.markdown("#### Session setup")
+            st.markdown("#### Session Setup")
             st.markdown(
-                "1. Place the camera at hip height.\n"
+                "1. Place camera at hip height (perpendicular 90° view).\n"
                 "2. Stand sideways to the camera.\n"
-                "3. Keep your head, hips, knees, and feet visible."
+                "3. Ensure head, hips, knees, and feet remain visible."
             )
-            st.info("Use http://localhost:8501 on this computer. Camera access requires HTTPS when opening the app through a LAN or remote address.")
+            st.info("Use http://localhost:8501 for webcam access. Browsers require HTTPS when opening remotely.")
             if not has_turn:
-                st.warning(
-                    "Remote camera connections may time out with STUN alone. "
-                    "Configure Cloudflare TURN credentials in Streamlit Secrets for hosted use."
-                )
+                st.caption("Using Google STUN. For NAT-restricted networks, configure TURN credentials.")
 
     counter = getattr(ctx.video_processor, "counter", None) if ctx else None
     if counter is not None:
@@ -158,7 +155,7 @@ def _render_live_camera():
     }
 
     with st.container(border=True):
-        st.markdown("#### Live telemetry")
+        st.markdown("#### Live Telemetry")
         k1, k2, k3, k4, k5 = st.columns(5)
         slot_reps, slot_phase, slot_knee, slot_back, slot_depth = [
             col.empty() for col in (k1, k2, k3, k4, k5)
@@ -183,16 +180,16 @@ def _render_live_camera():
         controls = st.columns([2.2, 1.5])
         with controls[0]:
             if recording_active:
-                st.success("Recording while camera is on · stop the camera to finish")
+                st.success("Recording active while camera is running · Stop camera to finalize clip.")
             elif st.session_state.get("live_recording_path"):
-                st.success("Recording saved · ready to analyze")
+                st.success("Recording saved and transcoded · Ready to analyze.")
             else:
-                st.caption("Start the camera to begin recording; stop it to save the clip.")
+                st.caption("Start camera to begin recording; stop camera to finalize clip.")
         with controls[1]:
             recorded_path = st.session_state.get("live_recording_path")
             if recorded_path and os.path.isfile(recorded_path):
-                st.caption(f"Saved · {os.path.basename(recorded_path)}")
-                if st.button("Analyze recording", key="live_analyze_recording", use_container_width=True):
+                st.caption(f"Saved: {os.path.basename(recorded_path)}")
+                if st.button("🚀 Analyze Recording", key="live_analyze_recording", type="primary", use_container_width=True):
                     return recorded_path
     return None
 
@@ -211,10 +208,10 @@ st.markdown("""
     </div>
     <div>
       <div style="font-family:'Outfit',sans-serif;font-size:1.5rem;font-weight:800;letter-spacing:-0.02em;color:#ffffff;">
-        AESTHETIQ BIOMECHANICS
+        AESTHETIQ BIOMECHANICS STUDIO
       </div>
       <div style="color:#cbd5e1;font-size:0.84rem;font-weight:500;">
-        Pure Python Computer Vision · MediaPipe Pose v0.10 · Starting Strength Standards
+        Pure Python Computer Vision · MediaPipe Pose · Starting Strength Grounded Standards
       </div>
     </div>
   </div>
@@ -238,6 +235,7 @@ with nav_col1:
 
 selected_video_path = None
 run_analysis = False
+selected_complexity = 1
 
 sample_video_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples", "common_sample.mp4")
 
@@ -248,7 +246,7 @@ if app_mode == "📂 Video Analysis Studio":
                 border-radius:16px;padding:18px 24px;margin-bottom:20px;">
     """, unsafe_allow_html=True)
 
-    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.2, 2.6, 1.2])
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.3, 2.3, 1.4])
 
     with ctrl_col1:
         video_source_type = st.selectbox(
@@ -256,6 +254,12 @@ if app_mode == "📂 Video Analysis Studio":
             options=["🎥 YouTube Video / Benchmark Sample", "📤 Upload Custom Video (MP4/MOV)"],
             key="video_source_dropdown"
         )
+        prec_option = st.selectbox(
+            "Vision Engine Precision:",
+            options=["⚡ Fast (MediaPipe Pose v1, ~20 FPS)", "🎯 High Precision (MediaPipe Pose v2, ~7 FPS)"],
+            key="precision_select"
+        )
+        selected_complexity = 1 if "Fast" in prec_option else 2
 
     if video_source_type == "🎥 YouTube Video / Benchmark Sample":
         with ctrl_col2:
@@ -328,6 +332,16 @@ if app_mode == "📂 Video Analysis Studio":
             st.write("")
             run_analysis = st.button("🚀 Run AI Assessment", type="primary", use_container_width=True)
 
+    # Consumer Recording Guidelines & Format Specifications
+    st.markdown("""
+    <div style="margin-top:12px;padding:10px 16px;background:rgba(255,255,255,0.04);border-radius:10px;border:1px solid rgba(255,255,255,0.08);display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:0.84rem;color:#cbd5e1;">📹 <strong>Formats:</strong> MP4, MOV, AVI</span>
+      <span style="font-size:0.84rem;color:#cbd5e1;">⏱ <strong>Optimal Duration:</strong> 5–45 seconds (up to 5 reps)</span>
+      <span style="font-size:0.84rem;color:#cbd5e1;">📐 <strong>Camera Angle:</strong> Perpendicular 90° side profile at hip height</span>
+      <span style="font-size:0.84rem;color:#cbd5e1;">🎯 <strong>Framing:</strong> Full body (head to toes) visible throughout movement</span>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 if app_mode == "📷 Live Camera Counter":
@@ -341,6 +355,7 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
         run_analysis
         or "analysis_result" not in st.session_state
         or st.session_state.get("active_video") != selected_video_path
+        or st.session_state.get("active_complexity") != selected_complexity
     )
 
     if run_analysis and need_run:
@@ -352,12 +367,13 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
             stat.caption(f"⚙️ {msg}")
 
         try:
-            processor = SquatVideoProcessor()
+            processor = SquatVideoProcessor(model_complexity=selected_complexity)
             result = processor.process_video(
-                selected_video_path, output_dir="output", progress_callback=cb
+                selected_video_path, output_dir="output", static_dir="static", progress_callback=cb
             )
             st.session_state["analysis_result"] = result
             st.session_state["active_video"] = selected_video_path
+            st.session_state["active_complexity"] = selected_complexity
             prog.empty()
             stat.empty()
             st.toast("🎉 Biomechanical assessment complete!", icon="✅")
@@ -385,13 +401,13 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("⏱ Total Duration", f"{result['duration_sec']:.1f} s")
         c2.metric("🔁 Detected Reps", f"{len(reps)} Reps")
-        c3.metric("✅ Assessable Checks Passed", f"{pass_rate:.0f}%", help=f"{passes} passed · {failed_checks} need attention · {unassessed_checks} could not be assessed")
-        c4.metric("🎬 Video Output", "H.264 MP4 Synced")
+        c3.metric("✅ Assessable Checks Passed", f"{pass_rate:.0f}%", help=f"{passes} passed · {failed_checks} need attention · {unassessed_checks} unassessable (front/rear view or iris)")
+        c4.metric("🎬 Video Transcoding", "Browser H.264 (PyAV)", help="Fully browser-compatible H.264 MP4 with fast seek support")
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
         # Tab Navigation
-        video_tab_label = "🎞️ Raw + analyzed video" if app_mode == "📷 Live Camera Counter" else "🎥 Video Analysis Studio"
+        video_tab_label = "🎞️ Raw + Analyzed Video Studio" if app_mode == "📷 Live Camera Counter" else "🎥 Dual Synchronized Video Studio"
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             video_tab_label,
             "📋 Rep-by-Rep Audit",
@@ -400,10 +416,10 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
             "📷 Live Session",
         ])
 
-        # ── TAB 1: Clean Dual Video Analysis Studio ───────────────────────────
+        # ── TAB 1: Dual Video Studio with Synchronized Scrubbing & Slow-Motion ─
         with tab1:
             ann_path = result.get("annotated_video_path")
-            
+
             # Action & metadata toolbar
             t_col1, t_col2, t_col3 = st.columns([3, 1, 1])
             with t_col1:
@@ -414,12 +430,12 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                   <span class="observed-pill">Total Frames: {result.get('total_frames', 0)}</span>
                 </div>
                 """, unsafe_allow_html=True)
-            
+
             with t_col2:
                 if os.path.exists(selected_video_path):
                     with open(selected_video_path, "rb") as raw_file:
                         st.download_button(
-                            label="Download raw",
+                            label="📥 Download Raw Video",
                             data=raw_file.read(),
                             file_name=os.path.basename(selected_video_path),
                             mime="video/mp4",
@@ -436,40 +452,67 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                             use_container_width=True
                         )
 
-            # ── Synchronized dual HTML5 video player ──────────────────────────
-            import base64
+            # Determine video sources (direct static URL streaming or base64 fallback)
+            static_ann_url = result.get("static_annotated_url")
+            static_raw_url = result.get("static_raw_url")
 
             def _video_b64(path: str) -> str:
-                with open(path, "rb") as f:
-                    return base64.b64encode(f.read()).decode()
+                try:
+                    with open(path, "rb") as f:
+                        return base64.b64encode(f.read()).decode()
+                except Exception:
+                    return ""
 
-            raw_b64  = _video_b64(selected_video_path)
-            ann_b64  = _video_b64(ann_path) if ann_path and os.path.exists(ann_path) else None
+            raw_src = static_raw_url if static_raw_url and os.path.exists(os.path.join("static", os.path.basename(static_raw_url))) else f"data:video/mp4;base64,{_video_b64(selected_video_path)}"
+            ann_src = static_ann_url if static_ann_url and os.path.exists(os.path.join("static", os.path.basename(static_ann_url))) else (f"data:video/mp4;base64,{_video_b64(ann_path)}" if ann_path and os.path.exists(ann_path) else "")
+
+            # Generate rep jump pills HTML
+            rep_jump_pills = ""
+            for r in reps:
+                bt = r.get("bottom_timestamp", 0.0)
+                rn = r.get("rep_number", 1)
+                rep_jump_pills += f'<button type="button" class="sync-pill" onclick="seekTo({bt:.2f})">Rep {rn} Bottom ({bt:.2f}s)</button> '
 
             dual_player_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
 <style>
+* {{ box-sizing: border-box; margin:0; padding:0; }}
+body {{
+  background: transparent;
+  color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+}}
+.player-container {{
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 16px;
+}}
 .dual-player-wrap {{
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  flex-wrap: wrap;
+  margin-bottom: 14px;
 }}
 .vid-card {{
   flex: 1 1 0;
   min-width: 260px;
-  background: rgba(15,23,42,0.95);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
+  background: rgba(10, 15, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   overflow: hidden;
 }}
 .vid-card-header {{
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
-  background: rgba(30,41,59,0.9);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  font-family: 'Inter', sans-serif;
+  padding: 8px 14px;
+  background: rgba(30, 41, 59, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 0.82rem;
   font-weight: 600;
   color: #cbd5e1;
@@ -483,61 +526,147 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
   display: block;
   background: #000;
 }}
-.sync-toolbar {{
+.controls-panel {{
+  background: rgba(22, 32, 56, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
   display: flex;
+  flex-direction: column;
   gap: 10px;
+}}
+.scrubber-row {{
+  display: flex;
   align-items: center;
-  padding: 10px 0 4px 0;
+  gap: 12px;
+}}
+.scrubber-slider {{
+  flex: 1;
+  height: 6px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}}
+.time-display {{
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  color: #38bdf8;
+  min-width: 130px;
+  text-align: right;
+}}
+.buttons-row {{
+  display: flex;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
 }}
 .sync-btn {{
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 18px;
+  gap: 5px;
+  padding: 6px 14px;
   border-radius: 8px;
   border: none;
-  font-family: 'Inter', sans-serif;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.18s;
+  transition: all 0.15s;
 }}
 .sync-btn-play  {{ background: linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; }}
 .sync-btn-pause {{ background: rgba(51,65,85,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); }}
+.sync-btn-step  {{ background: rgba(30,41,59,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.12); }}
 .sync-btn-reset {{ background: rgba(51,65,85,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); }}
-.sync-btn:hover  {{ transform: translateY(-1px); filter: brightness(1.1); }}
-.sync-status {{
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.78rem;
+.sync-btn:hover {{ filter: brightness(1.15); transform: translateY(-1px); }}
+.rate-group {{
+  display: flex;
+  gap: 4px;
+  background: rgba(15,23,42,0.8);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  margin-left: 6px;
+}}
+.rate-btn {{
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}}
+.rate-btn.active {{
+  background: #6366f1;
+  color: #fff;
+}}
+.sync-pill {{
+  background: rgba(6,182,212,0.15);
+  border: 1px solid rgba(6,182,212,0.4);
+  color: #38bdf8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}}
+.sync-pill:hover {{
+  background: rgba(6,182,212,0.3);
+  color: #ffffff;
+}}
+.hotkeys-hint {{
+  font-size: 0.72rem;
   color: #64748b;
   margin-left: auto;
 }}
 </style>
-
-<div class="sync-toolbar">
-  <button type="button" class="sync-btn sync-btn-play" id="playBoth">▶ Play Both</button>
-  <button type="button" class="sync-btn sync-btn-pause" id="pauseBoth">⏸ Pause Both</button>
-  <button type="button" class="sync-btn sync-btn-reset" id="resetBoth">⟳ Reset</button>
-  <span class="sync-status" id="syncStatus">Ready — click ▶ Play Both to start</span>
-</div>
-
-<div class="dual-player-wrap">
-  <div class="vid-card">
-    <div class="vid-card-header">
-      📹 Camera 01 · Original Input Footage
-      <span class="vid-badge-raw">RAW INPUT</span>
+</head>
+<body>
+<div class="player-container">
+  <div class="dual-player-wrap">
+    <div class="vid-card">
+      <div class="vid-card-header">
+        📹 Camera 01 · Original Input Footage
+        <span class="vid-badge-raw">RAW INPUT</span>
+      </div>
+      <video id="vidRaw" preload="auto" playsinline>
+        <source src="{raw_src}" type="video/mp4">
+      </video>
     </div>
-    <video id="vidRaw" preload="auto" controls>
-      <source src="data:video/mp4;base64,{raw_b64}" type="video/mp4">
-    </video>
+    <div class="vid-card">
+      <div class="vid-card-header">
+        🤖 Camera 02 · AI Annotated Biomechanics
+        <span class="vid-badge-ai">POSE + SKELETON + HUD</span>
+      </div>
+      {'<video id="vidAnn" preload="auto" playsinline><source src="' + ann_src + '" type="video/mp4"></video>' if ann_src else '<div style="padding:40px;text-align:center;color:#64748b;">⚠️ Annotated video not generated yet.</div>'}
+    </div>
   </div>
-  <div class="vid-card">
-    <div class="vid-card-header">
-      🤖 Camera 02 · AI Annotated Biomechanics
-      <span class="vid-badge-ai">POSE + SKELETON + HUD</span>
+
+  <div class="controls-panel">
+    <div class="scrubber-row">
+      <input type="range" class="scrubber-slider" id="scrubber" min="0" max="{result.get('duration_sec', 1.0):.2f}" step="0.033" value="0">
+      <div class="time-display" id="timeDisplay">0.00s / {result.get('duration_sec', 0.0):.2f}s</div>
     </div>
-    {'<video id="vidAnn" preload="auto" controls><source src="data:video/mp4;base64,' + ann_b64 + '" type="video/mp4"></video>' if ann_b64 else '<div style="padding:40px;text-align:center;color:#64748b;">⚠️ Annotated video not generated yet.</div>'}
+    <div class="buttons-row">
+      <button type="button" class="sync-btn sync-btn-play" id="btnPlayPause">▶ Play</button>
+      <button type="button" class="sync-btn sync-btn-step" id="btnStepBack" title="Step -1 frame">◀ -1 Frame</button>
+      <button type="button" class="sync-btn sync-btn-step" id="btnStepFwd" title="Step +1 frame">+1 Frame ▶</button>
+      <button type="button" class="sync-btn sync-btn-reset" id="btnReset">⟳ Reset</button>
+
+      <div class="rate-group">
+        <button type="button" class="rate-btn" data-rate="0.25">0.25x</button>
+        <button type="button" class="rate-btn" data-rate="0.5">0.5x</button>
+        <button type="button" class="rate-btn" data-rate="0.75">0.75x</button>
+        <button type="button" class="rate-btn active" data-rate="1.0">1.0x</button>
+      </div>
+
+      <div style="margin-left: 10px; display: inline-flex; gap: 6px; align-items:center;">
+        <span style="font-size:0.75rem;color:#94a3b8;">Jump:</span>
+        {rep_jump_pills}
+      </div>
+
+      <span class="hotkeys-hint">Hotkeys: Space (Play/Pause) · ◀ / ▶ (Step) · [ / ] (Speed)</span>
+    </div>
   </div>
 </div>
 
@@ -545,67 +674,142 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
 (function() {{
   var raw = document.getElementById('vidRaw');
   var ann = document.getElementById('vidAnn');
-  var status = document.getElementById('syncStatus');
+  var btnPlay = document.getElementById('btnPlayPause');
+  var btnStepBack = document.getElementById('btnStepBack');
+  var btnStepFwd = document.getElementById('btnStepFwd');
+  var btnReset = document.getElementById('btnReset');
+  var scrubber = document.getElementById('scrubber');
+  var timeDisplay = document.getElementById('timeDisplay');
+  var rateBtns = document.querySelectorAll('.rate-btn');
+
+  var fps = {result.get('fps', 30.0)};
+  var frameDuration = 1.0 / fps;
+  var isPlaying = false;
+
   function fmt(t) {{
-    var m = Math.floor(t/60), s = (t%60).toFixed(2);
-    return m + ':' + (s < 10 ? '0' : '') + s;
+    return (t || 0).toFixed(2) + 's';
   }}
 
-  function align(source, target) {{
-    if (target && Number.isFinite(source.currentTime) &&
-        Math.abs(source.currentTime - target.currentTime) > 0.15) {{
-      target.currentTime = source.currentTime;
-    }}
-  }}
-
-  document.getElementById('playBoth').addEventListener('click', async function() {{
+  function updateTime() {{
     if (!raw) return;
-    if (ann) align(raw, ann);
-    try {{
-      await Promise.all([raw.play(), ann ? ann.play() : Promise.resolve()]);
-      status.textContent = 'Playing — both videos synced';
-    }} catch (error) {{
-      status.textContent = 'Playback could not start. Use the video controls or check browser playback permissions.';
+    var cur = raw.currentTime;
+    var dur = raw.duration || {result.get('duration_sec', 1.0)};
+    timeDisplay.textContent = fmt(cur) + ' / ' + fmt(dur);
+    scrubber.value = cur;
+  }}
+
+  function align(target) {{
+    if (!raw || !ann) return;
+    if (Math.abs(raw.currentTime - ann.currentTime) > 0.08) {{
+      ann.currentTime = raw.currentTime;
+    }}
+  }}
+
+  window.seekTo = function(t) {{
+    if (raw) raw.currentTime = t;
+    if (ann) ann.currentTime = t;
+    updateTime();
+  }};
+
+  btnPlay.addEventListener('click', async function() {{
+    if (!raw) return;
+    if (isPlaying) {{
+      raw.pause();
+      if (ann) ann.pause();
+      btnPlay.textContent = '▶ Play';
+      btnPlay.className = 'sync-btn sync-btn-play';
+      isPlaying = false;
+    }} else {{
+      align();
+      try {{
+        await Promise.all([raw.play(), ann ? ann.play() : Promise.resolve()]);
+        btnPlay.textContent = '⏸ Pause';
+        btnPlay.className = 'sync-btn sync-btn-pause';
+        isPlaying = true;
+      }} catch (err) {{
+        console.warn('Playback error:', err);
+      }}
     }}
   }});
 
-  document.getElementById('pauseBoth').addEventListener('click', function() {{
-    if (raw) raw.pause();
-    if (ann) ann.pause();
-    status.textContent = 'Paused at ' + fmt(raw ? raw.currentTime : 0);
-  }});
-
-  document.getElementById('resetBoth').addEventListener('click', function() {{
+  btnReset.addEventListener('click', function() {{
     if (raw) {{ raw.pause(); raw.currentTime = 0; }}
     if (ann) {{ ann.pause(); ann.currentTime = 0; }}
-    status.textContent = 'Reset — click ▶ Play Both to start';
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
   }});
 
-  if (raw && ann) {{
-    raw.addEventListener('seeked', function() {{ align(raw, ann); }});
-    ann.addEventListener('seeked', function() {{ align(ann, raw); }});
-  }}
+  btnStepBack.addEventListener('click', function() {{
+    if (raw) {{ raw.pause(); raw.currentTime = Math.max(0, raw.currentTime - frameDuration); }}
+    if (ann) {{ ann.pause(); ann.currentTime = Math.max(0, ann.currentTime - frameDuration); }}
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
+  }});
 
-  // Keep the annotated player aligned to the source while playing.
-  if (raw && ann) {{
-    setInterval(function() {{
-      if (!raw.paused && Math.abs(raw.currentTime - ann.currentTime) > 0.25) {{
+  btnStepFwd.addEventListener('click', function() {{
+    if (raw) {{ raw.pause(); raw.currentTime = raw.currentTime + frameDuration; }}
+    if (ann) {{ ann.pause(); ann.currentTime = ann.currentTime + frameDuration; }}
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
+  }});
+
+  scrubber.addEventListener('input', function() {{
+    var t = parseFloat(scrubber.value);
+    if (raw) raw.currentTime = t;
+    if (ann) ann.currentTime = t;
+    updateTime();
+  }});
+
+  rateBtns.forEach(function(b) {{
+    b.addEventListener('click', function() {{
+      var r = parseFloat(b.getAttribute('data-rate'));
+      if (raw) raw.playbackRate = r;
+      if (ann) ann.playbackRate = r;
+      rateBtns.forEach(function(x) {{ x.classList.remove('active'); }});
+      b.classList.add('active');
+    }});
+  }});
+
+  if (raw) {{
+    raw.addEventListener('timeupdate', function() {{
+      updateTime();
+      if (ann && isPlaying && Math.abs(raw.currentTime - ann.currentTime) > 0.15) {{
         ann.currentTime = raw.currentTime;
       }}
-      if (!raw.paused) {{
-        status.textContent = '▶ ' + fmt(raw.currentTime) + ' / ' + fmt(raw.duration || 0);
-      }}
-    }}, 2000);
+    }});
+    raw.addEventListener('ended', function() {{
+      isPlaying = false;
+      btnPlay.textContent = '▶ Play';
+      btnPlay.className = 'sync-btn sync-btn-play';
+    }});
   }}
+
+  // Keyboard navigation
+  window.addEventListener('keydown', function(e) {{
+    if (e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') {{
+      e.preventDefault();
+      btnPlay.click();
+    }} else if (e.code === 'ArrowLeft') {{
+      e.preventDefault();
+      btnStepBack.click();
+    }} else if (e.code === 'ArrowRight') {{
+      e.preventDefault();
+      btnStepFwd.click();
+    }}
+  }});
 }})();
 </script>
+</body>
+</html>
 """
-            if hasattr(st, "iframe"):
-                st.iframe(dual_player_html, height=560)
-            else:
-                # Keep compatibility with the minimum Streamlit version in
-                # requirements.txt, which predates st.iframe.
-                components.html(dual_player_html, height=560, scrolling=False)
+            components.html(dual_player_html, height=480, scrolling=False)
 
             # Rep quick-jump reference strip
             if reps:
@@ -617,10 +821,10 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                         <div class="card" style="padding:14px;text-align:center;">
                           <div style="font-weight:700;color:#38bdf8;font-size:0.95rem;">Repetition {r['rep_number']}</div>
                           <div style="font-family:'JetBrains Mono';font-size:0.88rem;color:#cbd5e1;margin-top:4px;">
-                            Bottom @ <strong>{r['bottom_timestamp']:.2f}s</strong>
+                            Bottom @ <strong>{r['bottom_timestamp']:.2f}s</strong> (Frame #{r['bottom_frame']})
                           </div>
                           <div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">
-                            Duration: {r['duration_sec']:.1f}s
+                            Duration: {r['duration_sec']:.1f}s (↓{r.get('descent_duration_sec', 0):.1f}s | ↑{r.get('ascent_duration_sec', 0):.1f}s)
                           </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -660,12 +864,12 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                     <span class="status-badge {'status-badge-pass' if rep_pct >= 80 else ('status-badge-fail' if rep_pct < 50 else 'status-badge-cannot')}">
                       {rep_passes}/{rep_total} Assessable Checks Passed ({rep_pct:.0f}%)
                     </span>
-                    <div style="font-size:0.75rem;color:#94a3b8;">{rep_unassessed} checks could not be assessed</div>
+                    <div style="font-size:0.75rem;color:#94a3b8;">{rep_unassessed} checks unassessable</div>
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Render structured finding cards
+                # Render structured finding cards with frame & timestamp evidence
                 for f in rep_data.get("findings", []):
                     st_val = f["status"]
                     if st_val == "MEETS_STANDARD":
@@ -678,12 +882,17 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                         card_class = "audit-card audit-card-cannot"
                         badge_html = '<span class="status-badge status-badge-cannot">⚪ CANNOT ASSESS</span>'
 
+                    frame_val = f.get("frame")
+                    time_val = f.get("timestamp")
+                    evidence_pill = f'<span class="citation-pill" style="margin-left:8px;">⏱ Frame #{frame_val} ({time_val:.2f}s)</span>' if frame_val is not None and time_val is not None else ""
+
                     st.markdown(f"""
                     <div class="{card_class}">
                       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
                         <div>
                           <h4 style="margin:0 0 6px 0;font-size:1.15rem;color:#ffffff;">{f['name']}</h4>
                           <span class="observed-pill">📐 {f['observed']}</span>
+                          {evidence_pill}
                         </div>
                         {badge_html}
                       </div>
@@ -714,6 +923,7 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                         "Knee Flexion Angle (°)": tf.get("knee_angle", 0),
                         "Torso Back Angle (°)": tf.get("back_angle", 0),
                         "Bar Horizontal Drift (px)": tf.get("bar_dev_px", 0),
+                        "Bar Drift (cm)": tf.get("bar_dev_cm", 0),
                     }
                     for tf in valid_tel
                 ])
@@ -723,11 +933,13 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                     min_knee = df["Knee Flexion Angle (°)"].min()
                     min_back = df["Torso Back Angle (°)"].min()
                     max_drift = df["Bar Horizontal Drift (px)"].abs().max()
+                    cm_factor = valid_tel[0].get("cm_per_px", 0.16) if valid_tel else 0.16
+                    max_drift_cm = max_drift * cm_factor
 
                     t1, t2, t3 = st.columns(3)
                     t1.metric("🦵 Max Knee Flexion", f"{min_knee:.1f}°")
                     t2.metric("📐 Min Torso Angle", f"{min_back:.1f}°", help="Target low-bar back angle: 40°–50° at bottom")
-                    t3.metric("⚖️ Max Barbell Drift", f"{max_drift:.1f} px", help="Target: 0 px deviation from midfoot line")
+                    t3.metric("⚖️ Max Barbell Drift", f"{max_drift:.1f} px", help=f"~{max_drift_cm:.1f} cm horizontal deviation from midfoot plumb line (Target: 0 px)")
 
                 st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
@@ -805,13 +1017,13 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
 
         if app_mode == "📷 Live Camera Counter":
             with st.container(border=True):
-                st.markdown("### Live session outcome")
+                st.markdown("### Live Session Outcome")
                 st.caption("Analysis is run on the saved camera recording. Unassessable checks are excluded from the pass percentage.")
                 outcome_cols = st.columns(4)
-                outcome_cols[0].metric("Completed reps", str(len(reps)))
-                outcome_cols[1].metric("Checks passed", str(passes))
-                outcome_cols[2].metric("Need attention", str(failed_checks))
-                outcome_cols[3].metric("Could not assess", str(unassessed_checks))
+                outcome_cols[0].metric("Completed Reps", str(len(reps)))
+                outcome_cols[1].metric("Checks Passed", str(passes))
+                outcome_cols[2].metric("Need Attention", str(failed_checks))
+                outcome_cols[3].metric("Could Not Assess", str(unassessed_checks))
 
                 rep_rows = []
                 for rep in reps:
@@ -858,7 +1070,7 @@ else:
           <div style="font-size:1.8rem;margin-bottom:10px;">🎥</div>
           <h4 style="font-size:1.1rem;color:#38bdf8;margin-bottom:6px;">Dual Video Studio</h4>
           <p style="color:#cbd5e1;font-size:0.88rem;line-height:1.5;">
-            Side-by-side native video player comparing raw movement against AI skeletal and barbell overlays.
+            Side-by-side native video player comparing raw movement against AI skeletal and barbell overlays with slow-mo scrubbing.
           </p>
         </div>
         """, unsafe_allow_html=True)
@@ -891,7 +1103,7 @@ else:
           <div style="font-size:1.8rem;margin-bottom:10px;">📖</div>
           <h4 style="font-size:1.1rem;color:#38bdf8;margin-bottom:6px;">Document Citations</h4>
           <p style="color:#cbd5e1;font-size:0.88rem;line-height:1.5;">
-            Every finding cites Starting Strength page numbers, figure diagrams, and coaching cues.
+            Every finding cites Starting Strength page numbers, figure diagrams, and coaching cues with exact frame timestamps.
           </p>
         </div>
         """, unsafe_allow_html=True)
