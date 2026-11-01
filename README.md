@@ -21,7 +21,7 @@ A pure Python Computer Vision and Biomechanics assessment system grounded in Sta
 
 ```bash
 # Clone the repository
-git clone https://github.com/CHANDU32455/HiringTests.git
+git clone https://github.com/Suneelreddy2/Squat_Analysis_AI.git
 cd HiringTests
 
 # Create & activate virtual environment
