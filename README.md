@@ -1,3 +1,5 @@
+# PROJECT DEMO VIDEO: https://drive.google.com/file/d/1BLqmuNNwkaq9x_jUToIu6q-DCK4cHmi8/view?usp=sharing
+
 # 🏋️ AI Barbell Squat Analysis & Biomechanics Studio
 
 A pure Python Computer Vision and Biomechanics assessment system grounded in Starting Strength barbell squat standards (*Document_for_skill.pdf*).
