@@ -452,28 +452,364 @@ if selected_video_path and app_mode in ("📂 Video Analysis Studio", "📷 Live
                             use_container_width=True
                         )
 
-            # Native Streamlit video players avoid iframe-relative URL and static-file
-            # streaming issues. The processor prepares both files as H.264 MP4.
-            raw_play_path = result.get("browser_raw_video_path") or selected_video_path
-            ann_play_path = ann_path
+            # Determine video sources (direct static URL streaming or base64 fallback)
+            static_ann_url = result.get("static_annotated_url")
+            static_raw_url = result.get("static_raw_url")
 
-            raw_col, ann_col = st.columns(2, gap="large")
-            with raw_col:
-                st.markdown("#### 📹 Original Video")
-                if raw_play_path and os.path.isfile(raw_play_path):
-                    with open(raw_play_path, "rb") as raw_video_file:
-                        st.video(raw_video_file.read(), format="video/mp4")
-                else:
-                    st.warning("Original video file was not found.")
+            def _video_b64(path: str) -> str:
+                try:
+                    with open(path, "rb") as f:
+                        return base64.b64encode(f.read()).decode()
+                except Exception:
+                    return ""
 
-            with ann_col:
-                st.markdown("#### 🤖 AI Annotated Video")
-                if ann_play_path and os.path.isfile(ann_play_path):
-                    with open(ann_play_path, "rb") as annotated_video_file:
-                        st.video(annotated_video_file.read(), format="video/mp4")
-                else:
-                    st.warning("Annotated video was not generated or could not be found.")
+            raw_src = static_raw_url if static_raw_url and os.path.exists(os.path.join("static", os.path.basename(static_raw_url))) else f"data:video/mp4;base64,{_video_b64(selected_video_path)}"
+            ann_src = static_ann_url if static_ann_url and os.path.exists(os.path.join("static", os.path.basename(static_ann_url))) else (f"data:video/mp4;base64,{_video_b64(ann_path)}" if ann_path and os.path.exists(ann_path) else "")
 
+            # Generate rep jump pills HTML
+            rep_jump_pills = ""
+            for r in reps:
+                bt = r.get("bottom_timestamp", 0.0)
+                rn = r.get("rep_number", 1)
+                rep_jump_pills += f'<button type="button" class="sync-pill" onclick="seekTo({bt:.2f})">Rep {rn} Bottom ({bt:.2f}s)</button> '
+
+            dual_player_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* {{ box-sizing: border-box; margin:0; padding:0; }}
+body {{
+  background: transparent;
+  color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+}}
+.player-container {{
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 16px;
+}}
+.dual-player-wrap {{
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}}
+.vid-card {{
+  flex: 1 1 0;
+  min-width: 260px;
+  background: rgba(10, 15, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}}
+.vid-card-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: rgba(30, 41, 59, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}}
+.vid-badge-raw  {{ background:rgba(100,116,139,0.3); color:#94a3b8; padding:2px 8px; border-radius:6px; font-size:0.72rem; font-weight:700; }}
+.vid-badge-ai   {{ background:rgba(34,197,94,0.2);  color:#4ade80; padding:2px 8px; border-radius:6px; font-size:0.72rem; font-weight:700; }}
+.vid-card video {{
+  width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}}
+.controls-panel {{
+  background: rgba(22, 32, 56, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}}
+.scrubber-row {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}}
+.scrubber-slider {{
+  flex: 1;
+  height: 6px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}}
+.time-display {{
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  color: #38bdf8;
+  min-width: 130px;
+  text-align: right;
+}}
+.buttons-row {{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}}
+.sync-btn {{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}}
+.sync-btn-play  {{ background: linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; }}
+.sync-btn-pause {{ background: rgba(51,65,85,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); }}
+.sync-btn-step  {{ background: rgba(30,41,59,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.12); }}
+.sync-btn-reset {{ background: rgba(51,65,85,0.9); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); }}
+.sync-btn:hover {{ filter: brightness(1.15); transform: translateY(-1px); }}
+.rate-group {{
+  display: flex;
+  gap: 4px;
+  background: rgba(15,23,42,0.8);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  margin-left: 6px;
+}}
+.rate-btn {{
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}}
+.rate-btn.active {{
+  background: #6366f1;
+  color: #fff;
+}}
+.sync-pill {{
+  background: rgba(6,182,212,0.15);
+  border: 1px solid rgba(6,182,212,0.4);
+  color: #38bdf8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}}
+.sync-pill:hover {{
+  background: rgba(6,182,212,0.3);
+  color: #ffffff;
+}}
+.hotkeys-hint {{
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-left: auto;
+}}
+</style>
+</head>
+<body>
+<div class="player-container">
+  <div class="dual-player-wrap">
+    <div class="vid-card">
+      <div class="vid-card-header">
+        📹 Camera 01 · Original Input Footage
+        <span class="vid-badge-raw">RAW INPUT</span>
+      </div>
+      <video id="vidRaw" preload="auto" playsinline>
+        <source src="{raw_src}" type="video/mp4">
+      </video>
+    </div>
+    <div class="vid-card">
+      <div class="vid-card-header">
+        🤖 Camera 02 · AI Annotated Biomechanics
+        <span class="vid-badge-ai">POSE + SKELETON + HUD</span>
+      </div>
+      {'<video id="vidAnn" preload="auto" playsinline><source src="' + ann_src + '" type="video/mp4"></video>' if ann_src else '<div style="padding:40px;text-align:center;color:#64748b;">⚠️ Annotated video not generated yet.</div>'}
+    </div>
+  </div>
+
+  <div class="controls-panel">
+    <div class="scrubber-row">
+      <input type="range" class="scrubber-slider" id="scrubber" min="0" max="{result.get('duration_sec', 1.0):.2f}" step="0.033" value="0">
+      <div class="time-display" id="timeDisplay">0.00s / {result.get('duration_sec', 0.0):.2f}s</div>
+    </div>
+    <div class="buttons-row">
+      <button type="button" class="sync-btn sync-btn-play" id="btnPlayPause">▶ Play</button>
+      <button type="button" class="sync-btn sync-btn-step" id="btnStepBack" title="Step -1 frame">◀ -1 Frame</button>
+      <button type="button" class="sync-btn sync-btn-step" id="btnStepFwd" title="Step +1 frame">+1 Frame ▶</button>
+      <button type="button" class="sync-btn sync-btn-reset" id="btnReset">⟳ Reset</button>
+
+      <div class="rate-group">
+        <button type="button" class="rate-btn" data-rate="0.25">0.25x</button>
+        <button type="button" class="rate-btn" data-rate="0.5">0.5x</button>
+        <button type="button" class="rate-btn" data-rate="0.75">0.75x</button>
+        <button type="button" class="rate-btn active" data-rate="1.0">1.0x</button>
+      </div>
+
+      <div style="margin-left: 10px; display: inline-flex; gap: 6px; align-items:center;">
+        <span style="font-size:0.75rem;color:#94a3b8;">Jump:</span>
+        {rep_jump_pills}
+      </div>
+
+      <span class="hotkeys-hint">Hotkeys: Space (Play/Pause) · ◀ / ▶ (Step) · [ / ] (Speed)</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {{
+  var raw = document.getElementById('vidRaw');
+  var ann = document.getElementById('vidAnn');
+  var btnPlay = document.getElementById('btnPlayPause');
+  var btnStepBack = document.getElementById('btnStepBack');
+  var btnStepFwd = document.getElementById('btnStepFwd');
+  var btnReset = document.getElementById('btnReset');
+  var scrubber = document.getElementById('scrubber');
+  var timeDisplay = document.getElementById('timeDisplay');
+  var rateBtns = document.querySelectorAll('.rate-btn');
+
+  var fps = {result.get('fps', 30.0)};
+  var frameDuration = 1.0 / fps;
+  var isPlaying = false;
+
+  function fmt(t) {{
+    return (t || 0).toFixed(2) + 's';
+  }}
+
+  function updateTime() {{
+    if (!raw) return;
+    var cur = raw.currentTime;
+    var dur = raw.duration || {result.get('duration_sec', 1.0)};
+    timeDisplay.textContent = fmt(cur) + ' / ' + fmt(dur);
+    scrubber.value = cur;
+  }}
+
+  function align(target) {{
+    if (!raw || !ann) return;
+    if (Math.abs(raw.currentTime - ann.currentTime) > 0.08) {{
+      ann.currentTime = raw.currentTime;
+    }}
+  }}
+
+  window.seekTo = function(t) {{
+    if (raw) raw.currentTime = t;
+    if (ann) ann.currentTime = t;
+    updateTime();
+  }};
+
+  btnPlay.addEventListener('click', async function() {{
+    if (!raw) return;
+    if (isPlaying) {{
+      raw.pause();
+      if (ann) ann.pause();
+      btnPlay.textContent = '▶ Play';
+      btnPlay.className = 'sync-btn sync-btn-play';
+      isPlaying = false;
+    }} else {{
+      align();
+      try {{
+        await Promise.all([raw.play(), ann ? ann.play() : Promise.resolve()]);
+        btnPlay.textContent = '⏸ Pause';
+        btnPlay.className = 'sync-btn sync-btn-pause';
+        isPlaying = true;
+      }} catch (err) {{
+        console.warn('Playback error:', err);
+      }}
+    }}
+  }});
+
+  btnReset.addEventListener('click', function() {{
+    if (raw) {{ raw.pause(); raw.currentTime = 0; }}
+    if (ann) {{ ann.pause(); ann.currentTime = 0; }}
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
+  }});
+
+  btnStepBack.addEventListener('click', function() {{
+    if (raw) {{ raw.pause(); raw.currentTime = Math.max(0, raw.currentTime - frameDuration); }}
+    if (ann) {{ ann.pause(); ann.currentTime = Math.max(0, ann.currentTime - frameDuration); }}
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
+  }});
+
+  btnStepFwd.addEventListener('click', function() {{
+    if (raw) {{ raw.pause(); raw.currentTime = raw.currentTime + frameDuration; }}
+    if (ann) {{ ann.pause(); ann.currentTime = ann.currentTime + frameDuration; }}
+    btnPlay.textContent = '▶ Play';
+    btnPlay.className = 'sync-btn sync-btn-play';
+    isPlaying = false;
+    updateTime();
+  }});
+
+  scrubber.addEventListener('input', function() {{
+    var t = parseFloat(scrubber.value);
+    if (raw) raw.currentTime = t;
+    if (ann) ann.currentTime = t;
+    updateTime();
+  }});
+
+  rateBtns.forEach(function(b) {{
+    b.addEventListener('click', function() {{
+      var r = parseFloat(b.getAttribute('data-rate'));
+      if (raw) raw.playbackRate = r;
+      if (ann) ann.playbackRate = r;
+      rateBtns.forEach(function(x) {{ x.classList.remove('active'); }});
+      b.classList.add('active');
+    }});
+  }});
+
+  if (raw) {{
+    raw.addEventListener('timeupdate', function() {{
+      updateTime();
+      if (ann && isPlaying && Math.abs(raw.currentTime - ann.currentTime) > 0.15) {{
+        ann.currentTime = raw.currentTime;
+      }}
+    }});
+    raw.addEventListener('ended', function() {{
+      isPlaying = false;
+      btnPlay.textContent = '▶ Play';
+      btnPlay.className = 'sync-btn sync-btn-play';
+    }});
+  }}
+
+  // Keyboard navigation
+  window.addEventListener('keydown', function(e) {{
+    if (e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') {{
+      e.preventDefault();
+      btnPlay.click();
+    }} else if (e.code === 'ArrowLeft') {{
+      e.preventDefault();
+      btnStepBack.click();
+    }} else if (e.code === 'ArrowRight') {{
+      e.preventDefault();
+      btnStepFwd.click();
+    }}
+  }});
+}})();
+</script>
+</body>
+</html>
+"""
+            components.html(dual_player_html, height=480, scrolling=False)
 
             # Rep quick-jump reference strip
             if reps:
