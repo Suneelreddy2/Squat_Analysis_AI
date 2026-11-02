@@ -1,97 +1,127 @@
 import os
+import shutil
 import subprocess
 import logging
+from typing import List
 
 logger = logging.getLogger(__name__)
 
-def transcode_to_h264(input_path: str, output_path: str) -> bool:
-    """
-    Transcodes any video to browser-standard H.264 (yuv420p) MP4.
-    Tries PyAV (pure Python with bundled libx264) first, then imageio-ffmpeg,
-    and finally system ffmpeg binaries.
-    Returns True if transcoding succeeded, False otherwise.
-    """
-    if not os.path.isfile(input_path) or os.path.getsize(input_path) == 0:
-        logger.warning(f"Input file for transcoding is missing or empty: {input_path}")
-        return False
 
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+def _valid_output(path: str) -> bool:
+    return os.path.isfile(path) and os.path.getsize(path) > 1024
 
-    # 1. Try PyAV (fast, pure Python, bundled libx264)
-    try:
-        import av
-        in_container = av.open(input_path)
-        if not in_container.streams.video:
-            in_container.close()
-            raise ValueError("No video stream found in input")
 
-        in_stream = in_container.streams.video[0]
-        width = in_stream.codec_context.width
-        height = in_stream.codec_context.height
-        # H.264 requires dimensions to be even numbers
-        width = width - (width % 2)
-        height = height - (height % 2)
-
-        rate = in_stream.average_rate
-        if rate is None or float(rate) <= 0:
-            rate = 30
-
-        out_container = av.open(output_path, mode="w")
-        out_stream = out_container.add_stream("libx264", rate=rate)
-        out_stream.width = width
-        out_stream.height = height
-        out_stream.pix_fmt = "yuv420p"
-        out_stream.options = {"preset": "ultrafast", "crf": "23"}
-
-        for frame in in_container.decode(in_stream):
-            # If frame size doesn't match even dimensions, reformat
-            if frame.width != width or frame.height != height:
-                frame = frame.reformat(width=width, height=height, format="yuv420p")
-            for packet in out_stream.encode(frame):
-                out_container.mux(packet)
-
-        for packet in out_stream.encode():
-            out_container.mux(packet)
-
-        in_container.close()
-        out_container.close()
-
-        if os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
-            return True
-    except Exception as e:
-        logger.warning(f"PyAV transcoding failed, attempting fallback: {e}")
-        if os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except OSError:
-                pass
-
-    # 2. Fallback to imageio-ffmpeg or system ffmpeg
-    ffmpeg_executables = []
+def _ffmpeg_candidates() -> List[str]:
+    candidates = []
     try:
         import imageio_ffmpeg
-        ffmpeg_executables.append(imageio_ffmpeg.get_ffmpeg_exe())
-    except Exception:
-        pass
-    ffmpeg_executables.extend(["ffmpeg", "ffmpeg.exe"])
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe:
+            candidates.append(exe)
+    except Exception as exc:
+        logger.debug("imageio-ffmpeg is unavailable: %s", exc)
 
-    for exe in ffmpeg_executables:
+    for exe in ("ffmpeg", "ffmpeg.exe"):
+        resolved = shutil.which(exe)
+        if resolved:
+            candidates.append(resolved)
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(candidates))
+
+
+def transcode_to_h264(input_path: str, output_path: str) -> bool:
+    """Create a browser-friendly H.264/yuv420p MP4. Returns False on failure."""
+    if not os.path.isfile(input_path) or os.path.getsize(input_path) == 0:
+        logger.warning("Input video is missing or empty: %s", input_path)
+        return False
+
+    output_dir = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(output_dir, exist_ok=True)
+
+    # FFmpeg first: it handles timestamps, audio, and MP4 fast-start reliably.
+    for exe in _ffmpeg_candidates():
         try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+
             cmd = [
-                exe, "-y",
-                "-i", input_path,
-                "-vcodec", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
+                exe, "-y", "-i", input_path,
+                "-map", "0:v:0", "-map", "0:a?",
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
                 "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart",
-                output_path
+                "-f", "mp4", output_path,
             ]
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
-            if res.returncode == 0 and os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=300
+            )
+            if result.returncode == 0 and _valid_output(output_path):
+                logger.info("H.264 transcoding succeeded with %s", exe)
                 return True
-        except Exception:
-            continue
 
-    return False
+            logger.warning(
+                "FFmpeg transcoding failed with %s: %s",
+                exe, (result.stderr or "")[-1500:]
+            )
+        except Exception as exc:
+            logger.warning("FFmpeg attempt failed (%s): %s", exe, exc)
 
+    # PyAV fallback for environments where a usable FFmpeg executable is absent.
+    try:
+        import av
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        with av.open(input_path) as input_container:
+            if not input_container.streams.video:
+                raise ValueError("No video stream found")
+
+            input_stream = input_container.streams.video[0]
+            rate = input_stream.average_rate
+            if rate is None or float(rate) <= 0:
+                rate = 30
+
+            width = input_stream.codec_context.width
+            height = input_stream.codec_context.height
+            width -= width % 2
+            height -= height % 2
+            if width <= 0 or height <= 0:
+                raise ValueError("Invalid input video dimensions")
+
+            with av.open(
+                output_path, mode="w", format="mp4",
+                options={"movflags": "+faststart"}
+            ) as output_container:
+                output_stream = output_container.add_stream("libx264", rate=rate)
+                output_stream.width = width
+                output_stream.height = height
+                output_stream.pix_fmt = "yuv420p"
+                output_stream.options = {"preset": "ultrafast", "crf": "23"}
+
+                for frame in input_container.decode(input_stream):
+                    converted = frame.reformat(
+                        width=width, height=height, format="yuv420p"
+                    )
+                    for packet in output_stream.encode(converted):
+                        output_container.mux(packet)
+
+                for packet in output_stream.encode():
+                    output_container.mux(packet)
+
+        if _valid_output(output_path):
+            logger.info("H.264 transcoding succeeded with PyAV")
+            return True
+
+    except Exception as exc:
+        logger.exception("PyAV transcoding failed: %s", exc)
+
+    try:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+    except OSError:
+        pass

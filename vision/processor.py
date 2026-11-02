@@ -275,21 +275,33 @@ class SquatVideoProcessor:
         else:
             active_annotated_path = raw_annotated_path
 
-        # ── Stage into static/ for instant HTTP 206 partial streaming ──────────
+        # ── Prepare browser-compatible copies of both videos ───────────────────
         static_annotated_name = f"ann_{base_name}.mp4"
         static_raw_name = f"raw_{base_name}.mp4"
         static_annotated_path = os.path.join(static_dir, static_annotated_name)
         static_raw_path = os.path.join(static_dir, static_raw_name)
 
-        try:
-            shutil.copy2(active_annotated_path, static_annotated_path)
-        except Exception:
-            static_annotated_path = active_annotated_path
+        # The annotated output must be H.264 for reliable browser playback.
+        if not transcode_ok or not os.path.isfile(active_annotated_path) or os.path.getsize(active_annotated_path) == 0:
+            raise RuntimeError(
+                "Could not transcode the annotated video to H.264. "
+                "Check that PyAV or an FFmpeg build with libx264 is available."
+            )
 
-        try:
-            shutil.copy2(video_path, static_raw_path)
-        except Exception:
-            static_raw_path = video_path
+        shutil.copy2(active_annotated_path, static_annotated_path)
+
+        # Also transcode the original input: an MP4/MOV/AVI extension does not
+        # guarantee that its codec is supported by browsers.
+        web_raw_path = os.path.join(output_dir, f"web_raw_{base_name}.mp4")
+        raw_transcode_ok = transcode_to_h264(video_path, web_raw_path)
+        if raw_transcode_ok and os.path.isfile(web_raw_path) and os.path.getsize(web_raw_path) > 0:
+            active_raw_path = web_raw_path
+        else:
+            # Keep the original as a fallback; some source MP4 files are already
+            # browser-compatible even if transcoding is unavailable.
+            active_raw_path = video_path
+
+        shutil.copy2(active_raw_path, static_raw_path)
 
         if progress_callback:
             progress_callback(1.0, "Analysis complete!")
@@ -297,6 +309,8 @@ class SquatVideoProcessor:
         return {
             "video_path": video_path,
             "annotated_video_path": active_annotated_path,
+            "browser_raw_video_path": static_raw_path,
+            "raw_transcode_ok": raw_transcode_ok,
             "static_annotated_url": f"app/static/{static_annotated_name}",
             "static_raw_url": f"app/static/{static_raw_name}",
             "fps": fps,
